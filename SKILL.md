@@ -167,7 +167,7 @@ bdpan mkdir <路径>
 bash ${CLAUDE_SKILL_DIR}/scripts/install.sh [--yes]
 ```
 
-安装器从百度 CDN（`issuecdn.baidupcs.com`）下载，install.sh 内置 SHA256 校验确保完整性。安全敏感场景建议先手动审查安装器内容或在沙箱中执行。
+安装流程采用两步确认机制：先从百度 CDN（`issuecdn.baidupcs.com`）下载安装器到本地并执行 SHA256 校验，校验通过后提示用户确认才执行安装。用户可在确认前审查安装器文件内容。使用 `--yes` 可跳过确认直接安装。
 
 ### 登录 / 注销 / 卸载
 
@@ -180,9 +180,11 @@ bash ${CLAUDE_SKILL_DIR}/scripts/uninstall.sh [--yes]   # 卸载
 ### 更新（必须用户明确指令触发）
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/update.sh              # 检查并更新（需用户确认）
+bash ${CLAUDE_SKILL_DIR}/scripts/update.sh              # 检查并更新（需用户两次确认）
 bash ${CLAUDE_SKILL_DIR}/scripts/update.sh --check       # 仅检查更新
 ```
+
+更新流程采用两步确认机制：第一步确认下载更新包，下载后执行 SHA256 校验；第二步确认应用更新（解压覆盖）。用户可在第二步确认前审查更新包内容。
 
 ---
 

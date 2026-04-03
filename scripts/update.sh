@@ -121,10 +121,11 @@ fetch_skills_info() {
     echo "$skills_info"
 }
 
-# 更新 Skill
-do_update() {
+# 下载并校验更新包
+download_and_verify() {
     local remote_url="$1"
     local remote_version="$2"
+    local zip_path="$3"
 
     if [ -z "$remote_url" ]; then
         log_error "未找到 Skill 下载地址"
@@ -134,12 +135,7 @@ do_update() {
     log_info "正在下载 Skill 更新包 (v${remote_version})..."
     log_info "下载地址: ${remote_url}"
 
-    # 创建临时目录
-    local tmp_dir=$(mktemp -d)
-    trap "rm -rf '$tmp_dir'" EXIT
-
     # 下载 zip
-    local zip_path="${tmp_dir}/bdpan-storage.zip"
     if command -v curl &> /dev/null; then
         curl -fsSL -o "$zip_path" "$remote_url" || {
             log_error "下载 Skill 更新包失败"
@@ -173,11 +169,17 @@ do_update() {
         log_error "SHA256 校验失败！文件可能被篡改"
         log_error "  期望: ${checksum}"
         log_error "  实际: ${actual}"
+        rm -f "$zip_path"
         return 1
     fi
     log_info "SHA256 校验通过"
+}
 
-    # 解压覆盖
+# 应用更新（解压覆盖）
+apply_update() {
+    local zip_path="$1"
+    local remote_version="$2"
+
     log_info "正在解压更新..."
     if command -v unzip &> /dev/null; then
         unzip -qo "$zip_path" -d "$SKILL_DIR" || {
@@ -191,6 +193,9 @@ do_update() {
 
     # 更新 VERSION 文件
     echo "$remote_version" > "$VERSION_FILE"
+
+    # 清理下载文件
+    rm -f "$zip_path"
 
     log_info "Skill 已更新到 v${remote_version}"
 }
@@ -292,7 +297,6 @@ main() {
         exit 0
     fi
 
-    # 用户确认
     # 安全限制：Agent 环境中禁止使用 --yes 跳过确认
     if [ "$auto_yes" = "yes" ]; then
         if [ -n "$CLAUDE_CODE" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$MCP_SERVER" ]; then
@@ -300,8 +304,10 @@ main() {
             auto_yes="no"
         fi
     fi
+
+    # 第一步：用户确认是否下载更新包
     if [ "$auto_yes" != "yes" ]; then
-        echo -n -e "${YELLOW}是否更新 Skill 到 v${remote_version}? [y/N] ${NC}"
+        echo -n -e "${YELLOW}是否下载 Skill v${remote_version} 更新包? [y/N] ${NC}"
         read -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -312,8 +318,36 @@ main() {
 
     echo ""
 
-    # 执行更新
-    do_update "$remote_url" "$remote_version" || {
+    # 第二步：下载并校验更新包
+    local zip_path="${SKILL_DIR}/bdpan-storage-v${remote_version}.zip"
+    download_and_verify "$remote_url" "$remote_version" "$zip_path" || {
+        log_error "Skill 更新包下载或校验失败"
+        exit 1
+    }
+
+    # 第三步：用户确认是否应用更新（校验通过后再确认）
+    if [ "$auto_yes" != "yes" ]; then
+        echo ""
+        log_info "更新包已下载并通过完整性校验"
+        log_info "更新包路径: ${zip_path}"
+        echo ""
+        echo -e "${YELLOW}即将解压更新包并覆盖当前 Skill 文件。${NC}"
+        echo -e "${YELLOW}如需先审查更新包内容，请按 N 取消，然后手动检查。${NC}"
+        echo ""
+        echo -n -e "${YELLOW}是否立即应用更新? [y/N] ${NC}"
+        read -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "已取消应用。更新包已保存在: ${zip_path}"
+            log_info "您可以手动审查后执行: unzip -qo \"${zip_path}\" -d \"${SKILL_DIR}\""
+            exit 0
+        fi
+    fi
+
+    echo ""
+
+    # 第四步：应用更新
+    apply_update "$zip_path" "$remote_version" || {
         log_error "Skill 更新失败"
         exit 1
     }

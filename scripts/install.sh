@@ -177,55 +177,82 @@ main() {
     log_info "正在下载 bdpan CLI 安装器 (v${VERSION})..."
     log_info "下载地址: ${installer_url}"
 
-    # 下载并执行安装器（使用 --yes 非交互模式）
+    # 确定安装目录
+    local install_dir="${BDPAN_INSTALL_DIR:-$HOME/.local/bin}"
+    local installer_path="${install_dir}/${installer_name}"
+
+    # 确保安装目录存在
+    mkdir -p "${install_dir}"
+
+    # 下载安装器到安装目录
+    log_info "正在下载安装器到: ${installer_path}"
     if command -v curl &> /dev/null; then
-        curl -fsSL -O "${installer_url}"
+        curl -fsSL -o "${installer_path}" "${installer_url}"
     elif command -v wget &> /dev/null; then
-        wget -q "${installer_url}"
+        wget -q -O "${installer_path}" "${installer_url}"
     else
         log_error "未找到 curl 或 wget，请手动下载安装器"
+        log_error "下载地址: ${installer_url}"
         exit 1
-    fi
-
-    # 添加执行权限（非 Windows）
-    if [ "$os" != "windows" ]; then
-        chmod +x "${installer_name}"
     fi
 
     log_info "安装器下载完成，正在校验完整性..."
 
-    # SHA256 完整性校验
+    # SHA256 完整性校验（强制）
     local platform_key="${os}-${arch}"
     local expected_checksum="${CHECKSUMS[$platform_key]}"
     if [ -n "$expected_checksum" ]; then
         local actual_checksum=""
         if command -v sha256sum &> /dev/null; then
-            actual_checksum=$(sha256sum "${installer_name}" | awk '{print $1}')
+            actual_checksum=$(sha256sum "${installer_path}" | awk '{print $1}')
         elif command -v shasum &> /dev/null; then
-            actual_checksum=$(shasum -a 256 "${installer_name}" | awk '{print $1}')
+            actual_checksum=$(shasum -a 256 "${installer_path}" | awk '{print $1}')
         else
-            log_warn "未找到 sha256sum/shasum 工具，跳过完整性校验"
+            log_error "未找到 sha256sum/shasum 工具，无法验证安装器完整性"
+            rm -f "${installer_path}"
+            exit 1
         fi
 
-        if [ -n "$actual_checksum" ]; then
-            if [ "$actual_checksum" != "$expected_checksum" ]; then
-                log_error "SHA256 校验失败！文件可能被篡改"
-                log_error "  期望: ${expected_checksum}"
-                log_error "  实际: ${actual_checksum}"
-                rm -f "${installer_name}"
-                exit 1
-            fi
-            log_info "SHA256 校验通过"
+        if [ "$actual_checksum" != "$expected_checksum" ]; then
+            log_error "SHA256 校验失败！文件可能被篡改"
+            log_error "  期望: ${expected_checksum}"
+            log_error "  实际: ${actual_checksum}"
+            rm -f "${installer_path}"
+            exit 1
         fi
+        log_info "SHA256 校验通过"
     else
         log_warn "当前平台 ${platform_key} 无预置校验值，跳过完整性校验"
     fi
 
-    # 执行安装器（非交互模式）
-    ./${installer_name} --yes
+    # 添加执行权限（非 Windows）
+    if [ "$os" != "windows" ]; then
+        chmod +x "${installer_path}"
+    fi
+
+    # 用户确认后执行安装器
+    if [ "$force" != "yes" ]; then
+        echo ""
+        log_info "安装器已下载并通过完整性校验"
+        log_info "安装器路径: ${installer_path}"
+        echo ""
+        echo -e "${YELLOW}即将执行安装器，安装 bdpan CLI 到本地。${NC}"
+        echo -e "${YELLOW}如需先审查安装器，请按 N 取消，然后手动检查文件内容。${NC}"
+        echo ""
+        read -p "是否立即执行安装? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "已取消执行。安装器已保存在: ${installer_path}"
+            log_info "您可以手动审查后执行: ${installer_path} --yes"
+            exit 0
+        fi
+    fi
+
+    # 执行安装器
+    "${installer_path}" --yes
 
     # 清理安装器
-    rm -f "${installer_name}"
+    rm -f "${installer_path}"
 
     # 验证安装
     log_info "验证安装..."
