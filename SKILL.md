@@ -1,13 +1,13 @@
 ---
 name: bdpan-storage
-description: 百度网盘文件管理。支持上传、下载、转存、分享、搜索、移动、复制、重命名、创建文件夹。当用户提及"百度网盘""bdpan""网盘"并涉及文件操作时触发。
+description: 百度网盘文件管理。支持上传、下载、转存、分享、搜索、移动、复制、重命名、创建文件夹。当用户提及"百度网盘""百度云""百度云盘""bdpan""网盘""云盘""baidu netdisk""baidu pan""baidu cloud"并涉及文件操作时触发。
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion
 argument-hint: "[操作指令]"
 ---
 
 # 百度网盘存储 Skill
 
-百度网盘文件管理工具，所有操作限制在 `/apps/bdpan/` 目录内。适配 Claude Code、DuClaw、OpenClaw 等。
+百度网盘（百度云盘）文件管理工具，支持通过 CLI 进行云存储文件操作，所有操作限制在 `/apps/bdpan/` 目录内。适配 Claude Code、DuClaw、OpenClaw 等。
 
 > 内测阶段，使用注意事项详见 [reference/notes.md](./reference/notes.md)
 
@@ -15,7 +15,7 @@ argument-hint: "[操作指令]"
 
 同时满足以下条件才执行：
 
-1. 用户明确提及"百度网盘"、"bdpan"、"网盘"
+1. 用户明确提及"百度网盘"、"百度云"、"百度云盘"、"网盘"、"云盘"、"bdpan"、"baidu netdisk"、"baidu pan"、"baidu cloud"
 2. 操作意图明确（上传/下载/转存/分享/查看/搜索/移动/复制/重命名/创建文件夹/登录/注销）
 
 未通过触发规则时，禁止执行任何 bdpan 命令。
