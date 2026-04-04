@@ -14,6 +14,16 @@ NC='\033[0m' # No Color
 
 CONFIG_API="https://pan.baidu.com/act/v2/api/conf?conf_key=bd_skills"
 
+# Security: allowed domains for config API and download URLs
+ALLOWED_CONFIG_HOSTS="pan.baidu.com"
+ALLOWED_DOWNLOAD_HOSTS="issuecdn.baidupcs.com baidupcs.com pan.baidu.com"
+
+# Security: maximum update package size (100 MB) to prevent zip bombs
+MAX_UPDATE_SIZE=$((100 * 1024 * 1024))
+
+# Security: maximum number of files allowed in update zip
+MAX_ZIP_FILES=500
+
 # 脚本所在目录（用于定位 Skill 文件）
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -29,6 +39,74 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Security: validate URL against allowed host list
+validate_url() {
+    local url="$1"
+    local allowed_hosts="$2"
+    local context="$3"
+    # Enforce HTTPS
+    if [[ ! "$url" =~ ^https:// ]]; then
+        log_error "Security: ${context} URL must use HTTPS (got: $url)"
+        return 1
+    fi
+    # Extract hostname and validate against allowlist
+    local host
+    host=$(echo "$url" | sed -E 's|^https://([^/:]+).*|\1|')
+    local allowed=false
+    for allowed_host in $allowed_hosts; do
+        if [ "$host" = "$allowed_host" ]; then
+            allowed=true
+            break
+        fi
+    done
+    if [ "$allowed" != true ]; then
+        log_error "Security: ${context} host '$host' is not in the allowed list ($allowed_hosts)"
+        return 1
+    fi
+}
+
+# Security: validate file size
+validate_file_size() {
+    local file="$1"
+    local max_size="$2"
+    local file_size
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        file_size=$(stat -f%z "$file" 2>/dev/null || echo 0)
+    else
+        file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+    fi
+    if [ "$file_size" -gt "$max_size" ]; then
+        log_error "Security: file exceeds maximum allowed size (${file_size} > ${max_size} bytes)"
+        return 1
+    fi
+    if [ "$file_size" -eq 0 ]; then
+        log_error "Security: downloaded file is empty"
+        return 1
+    fi
+}
+
+# Security: validate zip contents for path traversal and file count
+validate_zip_contents() {
+    local zip_path="$1"
+    # Check for path traversal in zip entries
+    if unzip -l "$zip_path" 2>/dev/null | grep -qE '\.\./' ; then
+        log_error "Security: zip contains path traversal entries (../) - rejecting"
+        return 1
+    fi
+    # Check for absolute paths in zip entries
+    if unzip -l "$zip_path" 2>/dev/null | awk 'NR>3{print $4}' | grep -qE '^/' ; then
+        log_error "Security: zip contains absolute path entries - rejecting"
+        return 1
+    fi
+    # Check file count to prevent zip bombs
+    local file_count
+    file_count=$(unzip -l "$zip_path" 2>/dev/null | tail -1 | awk '{print $2}')
+    if [ "${file_count:-0}" -gt "$MAX_ZIP_FILES" ]; then
+        log_error "Security: zip contains too many files (${file_count} > ${MAX_ZIP_FILES}) - possible zip bomb"
+        return 1
+    fi
 }
 
 # 版本比较：返回 0 表示 $1 > $2，1 表示 $1 = $2，2 表示 $1 < $2
@@ -85,6 +163,9 @@ query_get() {
 
 # 请求配置接口，返回 skills_info query string
 fetch_skills_info() {
+    # Security: validate config API URL
+    validate_url "$CONFIG_API" "$ALLOWED_CONFIG_HOSTS" "config API" || return 1
+
     local response=""
 
     if command -v curl &> /dev/null; then
@@ -132,6 +213,9 @@ download_and_verify() {
         return 1
     fi
 
+    # Security: validate download URL
+    validate_url "$remote_url" "$ALLOWED_DOWNLOAD_HOSTS" "download" || return 1
+
     log_info "正在下载 Skill 更新包 (v${remote_version})..."
     log_info "下载地址: ${remote_url}"
 
@@ -173,6 +257,18 @@ download_and_verify() {
         return 1
     fi
     log_info "SHA256 校验通过"
+
+    # Security: validate file size
+    validate_file_size "$zip_path" "$MAX_UPDATE_SIZE" || {
+        rm -f "$zip_path"
+        return 1
+    }
+
+    # Security: validate zip contents for path traversal and zip bombs
+    validate_zip_contents "$zip_path" || {
+        rm -f "$zip_path"
+        return 1
+    }
 }
 
 # 应用更新（解压覆盖）
@@ -181,8 +277,14 @@ apply_update() {
     local remote_version="$2"
 
     log_info "正在解压更新..."
+
+    # Security: use temp directory for extraction, then copy to skill dir
+    local tmp_extract_dir
+    tmp_extract_dir=$(mktemp -d "${TMPDIR:-/tmp}/bdpan-update-XXXXXX")
+    trap 'rm -rf "${tmp_extract_dir}"' EXIT
+
     if command -v unzip &> /dev/null; then
-        unzip -qo "$zip_path" -d "$SKILL_DIR" || {
+        unzip -qo "$zip_path" -d "$tmp_extract_dir" || {
             log_error "解压失败"
             return 1
         }
@@ -190,6 +292,17 @@ apply_update() {
         log_error "未找到 unzip 工具"
         return 1
     fi
+
+    # Security: verify extracted contents don't contain suspicious files
+    if find "$tmp_extract_dir" -name '*.sh' -o -name '*.bash' | head -1 | grep -q .; then
+        log_warn "Update package contains shell scripts - please review before proceeding"
+    fi
+
+    # Copy verified files to skill directory
+    cp -R "$tmp_extract_dir"/* "$SKILL_DIR/" || {
+        log_error "复制更新文件失败"
+        return 1
+    }
 
     # 更新 VERSION 文件
     echo "$remote_version" > "$VERSION_FILE"

@@ -8,6 +8,12 @@ set -e
 VERSION="3.7.3"
 CDN_BASE="https://issuecdn.baidupcs.com/issue/netdisk/ai-bdpan/installer/${VERSION}"
 
+# Security: allowed CDN domains (only these hosts are trusted for downloads)
+ALLOWED_CDN_HOSTS="issuecdn.baidupcs.com"
+
+# Security: maximum installer file size (50 MB) to prevent abuse
+MAX_INSTALLER_SIZE=$((50 * 1024 * 1024))
+
 # 安装器 SHA256 校验值（每次版本更新时同步修改）
 # Use function instead of associative array for Bash 3.x compatibility (macOS default)
 get_checksum() {
@@ -36,6 +42,52 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Security: validate URL against allowed CDN hosts
+validate_download_url() {
+    local url="$1"
+    # Enforce HTTPS
+    if [[ ! "$url" =~ ^https:// ]]; then
+        log_error "Security: download URL must use HTTPS (got: $url)"
+        exit 1
+    fi
+    # Extract hostname and validate against allowlist
+    local host
+    host=$(echo "$url" | sed -E 's|^https://([^/]+).*|\1|')
+    local allowed=false
+    for allowed_host in $ALLOWED_CDN_HOSTS; do
+        if [ "$host" = "$allowed_host" ]; then
+            allowed=true
+            break
+        fi
+    done
+    if [ "$allowed" != true ]; then
+        log_error "Security: download host '$host' is not in the allowed list ($ALLOWED_CDN_HOSTS)"
+        exit 1
+    fi
+}
+
+# Security: validate downloaded file size
+validate_file_size() {
+    local file="$1"
+    local max_size="$2"
+    local file_size
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        file_size=$(stat -f%z "$file" 2>/dev/null || echo 0)
+    else
+        file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+    fi
+    if [ "$file_size" -gt "$max_size" ]; then
+        log_error "Security: downloaded file exceeds maximum allowed size (${file_size} > ${max_size} bytes)"
+        rm -f "$file"
+        exit 1
+    fi
+    if [ "$file_size" -eq 0 ]; then
+        log_error "Security: downloaded file is empty"
+        rm -f "$file"
+        exit 1
+    fi
 }
 
 # 检测操作系统
@@ -178,12 +230,21 @@ main() {
         installer_url="${CDN_BASE}/${installer_name}"
     fi
 
+    # Security: validate download URL before fetching
+    validate_download_url "${installer_url}"
+
     log_info "正在下载 bdpan CLI 安装器 (v${VERSION})..."
     log_info "下载地址: ${installer_url}"
 
     # 确定安装目录
     local install_dir="${BDPAN_INSTALL_DIR:-$HOME/.local/bin}"
-    local installer_path="${install_dir}/${installer_name}"
+
+    # Security: use isolated temp directory for download, not the install dir
+    local tmp_dir
+    tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/bdpan-install-XXXXXX")
+    # Ensure temp dir is cleaned up on exit
+    trap 'rm -rf "${tmp_dir}"' EXIT
+    local installer_path="${tmp_dir}/${installer_name}"
 
     # 确保安装目录存在
     mkdir -p "${install_dir}"
@@ -199,6 +260,9 @@ main() {
         log_error "下载地址: ${installer_url}"
         exit 1
     fi
+
+    # Security: validate file size before checksum
+    validate_file_size "${installer_path}" "${MAX_INSTALLER_SIZE}"
 
     log_info "安装器下载完成，正在校验完整性..."
 
@@ -252,10 +316,20 @@ main() {
         fi
     fi
 
+    # Security: ensure installer is not a script/text file masquerading as binary
+    local file_type
+    file_type=$(file -b "${installer_path}" 2>/dev/null || echo "unknown")
+    if echo "$file_type" | grep -qiE 'text|script|ascii|html'; then
+        log_error "Security: installer appears to be a text/script file, not a binary executable"
+        log_error "File type: ${file_type}"
+        rm -f "${installer_path}"
+        exit 1
+    fi
+
     # 执行安装器
     "${installer_path}" --yes
 
-    # 清理安装器
+    # 清理安装器 (also handled by trap)
     rm -f "${installer_path}"
 
     # 验证安装
