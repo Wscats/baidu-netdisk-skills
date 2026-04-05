@@ -1,5 +1,5 @@
 #!/bin/bash
-# bdpan-storage Skill 自动更新脚本
+# baidu-netdisk-skills Skill 自动更新脚本
 # 通过百度配置接口检测并更新 Skill 文件
 # CLI 更新由 bdpan 自身管理，本脚本不负责
 
@@ -372,7 +372,7 @@ main() {
     # 展示状态
     echo ""
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}  bdpan-storage Skill 更新检查${NC}"
+    echo -e "${BLUE}  baidu-netdisk-skills Skill 更新检查${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
     echo -e "  本地版本: ${local_version}"
@@ -432,7 +432,7 @@ main() {
     echo ""
 
     # 第二步：下载并校验更新包
-    local zip_path="${SKILL_DIR}/bdpan-storage-v${remote_version}.zip"
+    local zip_path="${SKILL_DIR}/baidu-netdisk-skills-v${remote_version}.zip"
     download_and_verify "$remote_url" "$remote_version" "$zip_path" || {
         log_error "Skill 更新包下载或校验失败"
         exit 1

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ClawHub publish script for bdpan-storage skill
+# ClawHub publish script for baidu-netdisk-skills skill
 # Usage: bash scripts/publish.sh [--version <semver>] [--name <name>] [--changelog <text>] [--yes]
 
 set -e

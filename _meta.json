@@ -1,5 +1,5 @@
 {
-  "name": "bdpan-storage",
+  "name": "baidu-netdisk-skills",
   "display_name": "百度网盘",
   "version": "1.0.0",
   "description": "百度网盘文件管理。支持上传、下载、转存、分享、搜索、移动、复制、重命名、创建文件夹。",
@@ -34,6 +34,8 @@
     "baidu-cloud",
     "baidu-yun",
     "bdpan",
+    "baidu-netdisk-skills",
+    "storage",
     "baidupan",
     "pan-baidu",
     "netdisk",
