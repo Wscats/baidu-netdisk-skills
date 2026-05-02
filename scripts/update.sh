@@ -15,8 +15,10 @@ NC='\033[0m' # No Color
 CONFIG_API="https://pan.baidu.com/act/v2/api/conf?conf_key=bd_skills"
 
 # Security: allowed domains for config API and download URLs
+# NOTE: must stay in sync with the "下载安全" clause in SKILL.md.
+# Only the official Baidu CDN for skill update packages is trusted.
 ALLOWED_CONFIG_HOSTS="pan.baidu.com"
-ALLOWED_DOWNLOAD_HOSTS="issuecdn.baidupcs.com baidupcs.com pan.baidu.com"
+ALLOWED_DOWNLOAD_HOSTS="issuecdn.baidupcs.com"
 
 # Security: maximum update package size (100 MB) to prevent zip bombs
 MAX_UPDATE_SIZE=$((100 * 1024 * 1024))
@@ -351,6 +353,29 @@ main() {
 
     # 获取本地版本
     local local_version=$(get_local_version)
+
+    # Security: block Agent auto-updates outright.
+    # This update path can replace any file in the skill directory, so we
+    # require a human-initiated terminal invocation. Agents (Claude Code,
+    # MCP servers, etc.) must not drive this script, even in --check mode.
+    if [ -n "$CLAUDE_CODE" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$MCP_SERVER" ]; then
+        log_error "Agent 环境禁止运行自更新脚本。请由用户在本地终端手动执行："
+        log_error "  bash scripts/update.sh"
+        exit 1
+    fi
+
+    # Show an up-front banner before any network call so the user sees
+    # exactly what this script can do.
+    echo ""
+    echo -e "${YELLOW}========================================${NC}"
+    echo -e "${YELLOW}  ⚠️  Skill 自更新脚本（请人工审阅）${NC}"
+    echo -e "${YELLOW}----------------------------------------${NC}"
+    echo -e "${YELLOW}  · 仅从 issuecdn.baidupcs.com 下载${NC}"
+    echo -e "${YELLOW}  · 会校验 SHA256 与 ZIP 安全性${NC}"
+    echo -e "${YELLOW}  · 会覆盖本目录下的 Skill 文件${NC}"
+    echo -e "${YELLOW}  · 如非您本人主动触发，请立即取消${NC}"
+    echo -e "${YELLOW}========================================${NC}"
+    echo ""
 
     # 请求远程配置
     log_info "正在检查更新..."

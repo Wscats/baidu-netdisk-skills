@@ -36,6 +36,18 @@ argument-hint: "[操作指令]"
 
 ---
 
+## 能力与风险披露（请在使用前知悉）
+
+本 skill 会代表您调用 `bdpan` CLI 执行**真实的云端与本地操作**，使用前请确认以下事项：
+
+1. **执行本地二进制**：`scripts/install.sh` 会从 `issuecdn.baidupcs.com` 下载并执行 `bdpan` CLI 安装器（具备 HTTPS、域名白名单、SHA256 校验、文件类型检查）。这仍然是一次**本地代码执行**——仅在受信任的设备上安装，安装前可审查下载到临时目录的安装器。
+2. **破坏性/分享性操作**：skill 可以调用 `bdpan` 进行 **删除 (rm)、移动 (mv)、重命名 (rename)、分享 (share)** 等操作，会直接修改您的网盘数据或对外产生分享链接。请在确认提示出现时核对源路径、目标路径与分享范围后再批准。
+3. **后台下载进程**：当下载目标文件 > 50MB 时，skill 会使用 `nohup ... &` 在后台启动下载；**该进程在 Agent 回合结束后仍会继续运行**，占用磁盘与网络带宽。如需中止，让 Agent 报告 PID 后执行 `kill <PID>`，并清理 `/tmp/bdpan-dl-<PID>.log`。
+4. **基于 Token 的凭据**：登录后 `bdpan` 会将 OAuth access_token 等凭据以本地配置文件（默认 `~/.config/bdpan/config.json`）形式保存。skill 严禁读取或输出该文件，但该文件本身是**敏感凭据**——仅在个人受信任设备上登录，使用结束后执行 `bdpan logout` 清除授权，并避免在公共/共享环境中使用。
+5. **自动更新边界**：`scripts/update.sh` 会从官方 CDN 拉取更新包并覆盖当前 skill 目录的文件。该脚本仅允许**用户在本地终端手动运行**，已在脚本内禁止 Agent 环境下执行，且需要用户两次确认（下载前 + 应用前）。
+
+---
+
 ## 前置检查
 
 每次触发时按顺序执行：
@@ -93,7 +105,47 @@ bdpan upload <本地路径> <远端路径>
 bdpan download <远端路径> <本地路径>
 ```
 
-步骤：`bdpan ls` 确认云端存在 → 确认本地路径 → 检查本地是否已存在 → 执行。若 ls 未找到，建议 `bdpan search <文件名>`。
+步骤：`bdpan ls` 确认云端存在 → 确认本地路径 → 检查本地是否已存在 → **检查文件大小决定下载策略** → 执行。若 ls 未找到，建议 `bdpan search <文件名>`。
+
+**大文件下载策略（重要）：**
+
+Agent 的 Bash 工具有执行超时限制，大文件下载可能因超时而中断。必须根据文件大小选择下载策略：
+
+1. **获取文件大小**：用 `bdpan ls --json <远端路径>` 获取 `size` 字段（字节）
+2. **按大小分策略执行**：
+
+| 文件大小 | 策略 | 执行方式 |
+|----------|------|---------|
+| ≤ 50MB | 直接下载 | `bdpan download <远端路径> <本地路径>`，Bash timeout 设为 300000（5 分钟） |
+| > 50MB | 后台下载 | 使用 `nohup` 后台执行，Agent 轮询进度 |
+
+**小文件（≤ 50MB）直接下载：**
+
+正常执行 `bdpan download`，Bash 工具 timeout 参数设为 `300000`（5 分钟）。
+
+**大文件（> 50MB）后台下载流程：**
+
+```bash
+# 1. 启动后台下载（nohup + 进度日志）
+nohup bdpan download <远端路径> <本地路径> > /tmp/bdpan-dl-$$.log 2>&1 & echo $!
+```
+
+```bash
+# 2. 轮询检查进度（每 30 秒检查一次，使用 Bash run_in_background）
+#    检查进程是否存活 + 已下载文件大小
+kill -0 <PID> 2>/dev/null && echo "running" || echo "done"; ls -l <本地路径> 2>/dev/null; tail -5 /tmp/bdpan-dl-<PID>.log 2>/dev/null
+```
+
+```bash
+# 3. 下载完成后清理日志
+rm -f /tmp/bdpan-dl-<PID>.log
+```
+
+Agent 执行大文件后台下载时的行为规范：
+- 启动后台下载后，**立即告知用户**：下载已在后台启动，文件大小 X，预计需要 Y 时间
+- 每次轮询后向用户报告进度（已下载大小 / 总大小、百分比）
+- 下载完成后告知用户最终结果
+- 如果进程异常退出，检查日志并报告错误原因
 
 **分享链接下载（先转存再下载到本地）：**
 
@@ -102,6 +154,8 @@ bdpan download "https://pan.baidu.com/s/1xxxxx?pwd=abcd" ./downloaded/
 bdpan download "https://pan.baidu.com/s/1xxxxx" ./downloaded/ -p abcd    # 提取码单独传入
 bdpan download "https://pan.baidu.com/s/1xxxxx?pwd=abcd" ./downloaded/ -t my-folder  # 指定转存目录
 ```
+
+> 分享链接下载同样适用大文件策略：转存完成后，用 `bdpan ls --json` 获取文件大小，再按上述策略执行下载。
 
 ### 转存
 
