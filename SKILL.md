@@ -1,26 +1,51 @@
 ---
 name: baidu-netdisk-skills
-description: 百度网盘文件管理。支持上传、下载、转存、分享、搜索、移动、复制、重命名、创建文件夹。当用户提及"百度网盘""百度云""百度云盘""bdpan""网盘""云盘""baidu netdisk""baidu pan""baidu cloud"并涉及文件操作时触发。
+description: >-
+  百度网盘(Baidu Drive)文件管理 — 上传、下载、转存、分享、搜索、移动、复制、重命名、创建文件夹。
+  同时支持 Agent 记忆备份/恢复（kimiclaw/maxclaw/qclaw/openclaw）。
+  TRIGGER: 用户提及"百度网盘/bdpan/网盘/云盘/baidu drive/Baidu Drive"并涉及文件操作；
+           或用户提及"备份记忆"、"恢复记忆"、"查看记忆备份"等记忆相关操作。
+  DO NOT TRIGGER: 非文件存储操作，或使用其他云盘服务时；本地记忆整理/清理操作；PPT 生成操作（已独立为 baidu-wenku-aippt skill）。
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion
 argument-hint: "[操作指令]"
 ---
 
 # 百度网盘存储 Skill
 
-百度网盘（百度云盘）文件管理工具，支持通过 CLI 进行云存储文件操作，所有操作限制在 `/apps/bdpan/` 目录内。适配 Claude Code、DuClaw、OpenClaw 等。
+百度网盘文件管理工具，所有操作限制在 `/apps/bdpan/` 目录内。适配 Claude Code、DuClaw、OpenClaw 等。
 
-> 内测阶段，使用注意事项详见 [reference/notes.md](./reference/notes.md)
+> 使用注意事项详见 [reference/notes.md](./reference/notes.md)
 
 ## 触发规则
 
+### 网盘文件操作触发
+
 同时满足以下条件才执行：
 
-1. 用户明确提及"百度网盘"、"百度云"、"百度云盘"、"网盘"、"云盘"、"bdpan"、"baidu netdisk"、"baidu pan"、"baidu cloud"
+1. 用户明确提及"百度网盘"、"bdpan"、"网盘"
 2. 操作意图明确（上传/下载/转存/分享/查看/搜索/移动/复制/重命名/创建文件夹/登录/注销）
 
 未通过触发规则时，禁止执行任何 bdpan 命令。
 
 > **上下文延续：** 当前对话已在进行网盘操作时，后续消息无需再次提及"网盘"即可触发。
+
+### 记忆备份/恢复触发
+
+**以下表达即使未提及"网盘"也应触发（仅限 kimiclaw/maxclaw/qclaw/openclaw 环境）：**
+
+| 用户说法示例 | 触发操作 |
+|------------|---------|
+| "备份记忆"、"备份我的记忆"、"把记忆存到网盘" | backup |
+| "查看记忆备份"、"有哪些备份"、"备份列表" | list |
+| "恢复记忆"、"还原记忆"、"回滚记忆"、"记忆回档" | restore（需确认日期） |
+| "恢复 3月16号 的记忆"、"恢复 2026-03-16 的备份" | restore 指定日期 |
+
+**以下情况不触发记忆备份/恢复：**
+- "帮我记住…"、"整理记忆"、"清理记忆"（本地操作，不涉及网盘）
+- "备份我的代码/文件"（操作对象不是记忆）
+- 非以上 4 种 Claw 环境（报错说明不支持，不执行）
+
+**区分原则：** 操作对象是否为 Agent 记忆文件（AGENTS.md、SOUL.md、MEMORY.md、memory/*.md 等）。
 
 ---
 
@@ -31,20 +56,7 @@ argument-hint: "[操作指令]"
 3. **更新/登录**：更新必须由用户明确指令触发，禁止自动或静默执行；Agent 禁止使用 `--yes` 参数执行 update.sh 或 login.sh
 4. **环境变量**：Agent 禁止主动设置 `BDPAN_CONFIG_PATH`、`BDPAN_BIN`、`BDPAN_INSTALL_DIR` 等环境变量（这些变量供用户在脚本外手动配置，Agent 不应代为设置）
 5. **路径安全**：禁止路径穿越（`..`、`~`）、禁止访问 `/apps/bdpan/` 范围外的绝对路径
-6. **下载安全**：所有远程下载（安装器、更新包）仅允许从百度官方 CDN 域名（`issuecdn.baidupcs.com`）获取，强制使用 HTTPS，并执行 SHA256 完整性校验。下载文件有大小上限防护，安装器下载到隔离临时目录中执行
-7. **更新包安全**：更新 ZIP 包在解压前执行路径穿越检测（拒绝含 `../` 或绝对路径的条目）、文件数量上限检测（防止 ZIP 炸弹），解压到隔离临时目录后再复制到 Skill 目录
-
----
-
-## 能力与风险披露（请在使用前知悉）
-
-本 skill 会代表您调用 `bdpan` CLI 执行**真实的云端与本地操作**，使用前请确认以下事项：
-
-1. **执行本地二进制**：`scripts/install.sh` 会从 `issuecdn.baidupcs.com` 下载并执行 `bdpan` CLI 安装器（具备 HTTPS、域名白名单、SHA256 校验、文件类型检查）。这仍然是一次**本地代码执行**——仅在受信任的设备上安装，安装前可审查下载到临时目录的安装器。
-2. **破坏性/分享性操作**：skill 可以调用 `bdpan` 进行 **删除 (rm)、移动 (mv)、重命名 (rename)、分享 (share)** 等操作，会直接修改您的网盘数据或对外产生分享链接。请在确认提示出现时核对源路径、目标路径与分享范围后再批准。
-3. **后台下载进程**：当下载目标文件 > 50MB 时，skill 会使用 `nohup ... &` 在后台启动下载；**该进程在 Agent 回合结束后仍会继续运行**，占用磁盘与网络带宽。如需中止，让 Agent 报告 PID 后执行 `kill <PID>`，并清理 `/tmp/bdpan-dl-<PID>.log`。
-4. **基于 Token 的凭据**：登录后 `bdpan` 会将 OAuth access_token 等凭据以本地配置文件（默认 `~/.config/bdpan/config.json`）形式保存。skill 严禁读取或输出该文件，但该文件本身是**敏感凭据**——仅在个人受信任设备上登录，使用结束后执行 `bdpan logout` 清除授权，并避免在公共/共享环境中使用。
-5. **自动更新边界**：`scripts/update.sh` 会从官方 CDN 拉取更新包并覆盖当前 skill 目录的文件。该脚本仅允许**用户在本地终端手动运行**，已在脚本内禁止 Agent 环境下执行，且需要用户两次确认（下载前 + 应用前）。
+6. **记忆备份约束**：禁止直接用裸 `bdpan upload/download` 命令操作记忆目录；必须通过 `bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh` 脚本执行，以确保 manifest 生成、路径安全检查、safety net 备份等机制正常运行
 
 ---
 
@@ -170,10 +182,20 @@ bdpan transfer "https://pan.baidu.com/s/1xxxxx" -p <提取码> [-d 目标目录]
 ### 分享
 
 ```bash
-bdpan share <路径> [路径...] [--json]
+bdpan share <路径> [路径...] [--period <天数>] [--json]
 ```
 
-步骤：`bdpan ls` 确认文件存在 → 执行分享 → 展示链接+提取码+有效期。
+**--period / -d 参数：** 分享有效期（天），取值：0=永久, 1, 7, 30（默认：7）
+
+**智能选择规则：**
+
+Agent 必须根据用户的语义意图判断有效期，而非仅匹配固定关键词。
+
+- 用户表达了"希望长期有效/永久/不过期/一直能用"等语义 → 使用 `--period 0`，并提示用户：永久链接无法自动过期，请注意文件安全
+- 用户指定了具体天数或时间范围 → 选择最接近的枚举值（1、7、30）
+- 用户未表达任何有效期偏好 → 默认 `--period 7`
+
+步骤：`bdpan ls` 确认文件存在 → 根据用户意图选择有效期 → 执行分享 → 展示链接+提取码+有效期。
 
 > 付费接口，需在百度网盘开放平台购买服务。
 
@@ -223,7 +245,7 @@ bdpan mkdir <路径>
 bash ${CLAUDE_SKILL_DIR}/scripts/install.sh [--yes]
 ```
 
-安装流程采用两步确认机制：先从百度 CDN（`issuecdn.baidupcs.com`）下载安装器到本地并执行 SHA256 校验，校验通过后提示用户确认才执行安装。用户可在确认前审查安装器文件内容。使用 `--yes` 可跳过确认直接安装。
+安装器从百度 CDN（`issuecdn.baidupcs.com`）下载并执行。注意：install.sh 不执行本地 SHA256 校验，完整性依赖 HTTPS 传输保护。安全敏感场景建议先手动审查安装器内容或在沙箱中执行。
 
 ### 登录 / 注销 / 卸载
 
@@ -236,11 +258,49 @@ bash ${CLAUDE_SKILL_DIR}/scripts/uninstall.sh [--yes]   # 卸载
 ### 更新（必须用户明确指令触发）
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/update.sh              # 检查并更新（需用户两次确认）
+bash ${CLAUDE_SKILL_DIR}/scripts/update.sh              # 检查并更新（需用户确认）
 bash ${CLAUDE_SKILL_DIR}/scripts/update.sh --check       # 仅检查更新
 ```
 
-更新流程采用两步确认机制：第一步确认下载更新包，下载后执行 SHA256 校验；第二步确认应用更新（解压覆盖）。用户可在第二步确认前审查更新包内容。
+---
+
+## 记忆备份与恢复
+
+仅支持 4 种 Claw 产品（kimiclaw、maxclaw、qclaw、openclaw），自动检测当前环境。
+
+**网盘存储路径：** `/apps/bdpan/agent-memory/<agent>/<device>/manual/<timestamp>/`
+
+**备份内容：** 7 个 Workspace 文件（AGENTS.md、SOUL.md、USER.md、IDENTITY.md、TOOLS.md、MEMORY.md、HEARTBEAT.md）+ `memory/*.md` + `manifest.json`
+
+### 备份记忆
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh backup
+```
+
+### 查看备份列表
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh list
+```
+
+### 恢复备份
+
+```bash
+# 按日期模糊匹配（如只输入日期部分）
+bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh restore 2026-03-16
+
+# 跳过兼容性警告强制恢复（跨 Agent 类型时使用）
+bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh restore 2026-03-16 --force
+```
+
+**恢复安全机制：** 恢复前自动将当前本地记忆备份到 `<workspace>/.backup-before-restore/<timestamp>/`，防止误操作数据丢失。
+
+### 操作流程
+
+1. 执行前自动检查：bdpan 是否安装 → 是否已登录（未满足则引导处理）
+2. 检测当前 Agent 类型 → 不支持的环境报错退出
+3. 执行对应操作（backup/list/restore）
 
 ---
 

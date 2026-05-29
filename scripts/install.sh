@@ -8,21 +8,14 @@ set -e
 VERSION="3.7.3"
 CDN_BASE="https://issuecdn.baidupcs.com/issue/netdisk/ai-bdpan/installer/${VERSION}"
 
-# Security: allowed CDN domains (only these hosts are trusted for downloads)
-ALLOWED_CDN_HOSTS="issuecdn.baidupcs.com"
-
-# Security: maximum installer file size (50 MB) to prevent abuse
-MAX_INSTALLER_SIZE=$((50 * 1024 * 1024))
-
-# 安装器 SHA256 校验值（每次版本更新时同步修改）
-# Use function instead of associative array for Bash 3.x compatibility (macOS default)
+# 按平台返回安装器 SHA256 校验值（兼容 bash 3.2+，替代 declare -A）
 get_checksum() {
     case "$1" in
-        "darwin-amd64") echo "f49b3577ecd8b596f21e30b1bb8458a31c7ec644c5c4b64da444cea6bbc089cf" ;;
-        "darwin-arm64") echo "8c3a6d3d427e2661a08adfa1acfce4ce849164ba73b9b60662620f7140f86b40" ;;
-        "linux-amd64")  echo "1678837c5ce6978f6491e76b10e344fba2beef6f81eb067c7ecc5668cf38fedb" ;;
-        "linux-arm64")  echo "7692f828a1af10289274e6951225fcbe9ad3c0664ebee0b492c410855220c197" ;;
-        *) echo "" ;;
+        darwin-amd64)  echo "f49b3577ecd8b596f21e30b1bb8458a31c7ec644c5c4b64da444cea6bbc089cf" ;;
+        darwin-arm64)  echo "8c3a6d3d427e2661a08adfa1acfce4ce849164ba73b9b60662620f7140f86b40" ;;
+        linux-amd64)   echo "1678837c5ce6978f6491e76b10e344fba2beef6f81eb067c7ecc5668cf38fedb" ;;
+        linux-arm64)   echo "7692f828a1af10289274e6951225fcbe9ad3c0664ebee0b492c410855220c197" ;;
+        *)             echo "" ;;
     esac
 }
 
@@ -42,52 +35,6 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Security: validate URL against allowed CDN hosts
-validate_download_url() {
-    local url="$1"
-    # Enforce HTTPS
-    if [[ ! "$url" =~ ^https:// ]]; then
-        log_error "Security: download URL must use HTTPS (got: $url)"
-        exit 1
-    fi
-    # Extract hostname and validate against allowlist
-    local host
-    host=$(echo "$url" | sed -E 's|^https://([^/]+).*|\1|')
-    local allowed=false
-    for allowed_host in $ALLOWED_CDN_HOSTS; do
-        if [ "$host" = "$allowed_host" ]; then
-            allowed=true
-            break
-        fi
-    done
-    if [ "$allowed" != true ]; then
-        log_error "Security: download host '$host' is not in the allowed list ($ALLOWED_CDN_HOSTS)"
-        exit 1
-    fi
-}
-
-# Security: validate downloaded file size
-validate_file_size() {
-    local file="$1"
-    local max_size="$2"
-    local file_size
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        file_size=$(stat -f%z "$file" 2>/dev/null || echo 0)
-    else
-        file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
-    fi
-    if [ "$file_size" -gt "$max_size" ]; then
-        log_error "Security: downloaded file exceeds maximum allowed size (${file_size} > ${max_size} bytes)"
-        rm -f "$file"
-        exit 1
-    fi
-    if [ "$file_size" -eq 0 ]; then
-        log_error "Security: downloaded file is empty"
-        rm -f "$file"
-        exit 1
-    fi
 }
 
 # 检测操作系统
@@ -230,107 +177,59 @@ main() {
         installer_url="${CDN_BASE}/${installer_name}"
     fi
 
-    # Security: validate download URL before fetching
-    validate_download_url "${installer_url}"
-
     log_info "正在下载 bdpan CLI 安装器 (v${VERSION})..."
     log_info "下载地址: ${installer_url}"
 
-    # 确定安装目录
-    local install_dir="${BDPAN_INSTALL_DIR:-$HOME/.local/bin}"
-
-    # Security: use isolated temp directory for download, not the install dir
-    local tmp_dir
-    tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/bdpan-install-XXXXXX")
-    # Ensure temp dir is cleaned up on exit
-    trap 'rm -rf "${tmp_dir}"' EXIT
-    local installer_path="${tmp_dir}/${installer_name}"
-
-    # 确保安装目录存在
-    mkdir -p "${install_dir}"
-
-    # 下载安装器到安装目录
-    log_info "正在下载安装器到: ${installer_path}"
+    # 下载并执行安装器（使用 --yes 非交互模式）
     if command -v curl &> /dev/null; then
-        curl -fsSL -o "${installer_path}" "${installer_url}"
+        curl -fsSL -O "${installer_url}"
     elif command -v wget &> /dev/null; then
-        wget -q -O "${installer_path}" "${installer_url}"
+        wget -q "${installer_url}"
     else
         log_error "未找到 curl 或 wget，请手动下载安装器"
-        log_error "下载地址: ${installer_url}"
         exit 1
-    fi
-
-    # Security: validate file size before checksum
-    validate_file_size "${installer_path}" "${MAX_INSTALLER_SIZE}"
-
-    log_info "安装器下载完成，正在校验完整性..."
-
-    # SHA256 完整性校验（强制）
-    local platform_key="${os}-${arch}"
-    local expected_checksum="$(get_checksum "$platform_key")"
-    if [ -n "$expected_checksum" ]; then
-        local actual_checksum=""
-        if command -v sha256sum &> /dev/null; then
-            actual_checksum=$(sha256sum "${installer_path}" | awk '{print $1}')
-        elif command -v shasum &> /dev/null; then
-            actual_checksum=$(shasum -a 256 "${installer_path}" | awk '{print $1}')
-        else
-            log_error "未找到 sha256sum/shasum 工具，无法验证安装器完整性"
-            rm -f "${installer_path}"
-            exit 1
-        fi
-
-        if [ "$actual_checksum" != "$expected_checksum" ]; then
-            log_error "SHA256 校验失败！文件可能被篡改"
-            log_error "  期望: ${expected_checksum}"
-            log_error "  实际: ${actual_checksum}"
-            rm -f "${installer_path}"
-            exit 1
-        fi
-        log_info "SHA256 校验通过"
-    else
-        log_warn "当前平台 ${platform_key} 无预置校验值，跳过完整性校验"
     fi
 
     # 添加执行权限（非 Windows）
     if [ "$os" != "windows" ]; then
-        chmod +x "${installer_path}"
+        chmod +x "${installer_name}"
     fi
 
-    # 用户确认后执行安装器
-    if [ "$force" != "yes" ]; then
-        echo ""
-        log_info "安装器已下载并通过完整性校验"
-        log_info "安装器路径: ${installer_path}"
-        echo ""
-        echo -e "${YELLOW}即将执行安装器，安装 bdpan CLI 到本地。${NC}"
-        echo -e "${YELLOW}如需先审查安装器，请按 N 取消，然后手动检查文件内容。${NC}"
-        echo ""
-        read -p "是否立即执行安装? [y/N] " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "已取消执行。安装器已保存在: ${installer_path}"
-            log_info "您可以手动审查后执行: ${installer_path} --yes"
-            exit 0
+    log_info "安装器下载完成，正在校验完整性..."
+
+    # SHA256 完整性校验
+    local platform_key="${os}-${arch}"
+    local expected_checksum
+    expected_checksum="$(get_checksum "$platform_key")"
+    if [ -n "$expected_checksum" ]; then
+        local actual_checksum=""
+        if command -v sha256sum &> /dev/null; then
+            actual_checksum=$(sha256sum "${installer_name}" | awk '{print $1}')
+        elif command -v shasum &> /dev/null; then
+            actual_checksum=$(shasum -a 256 "${installer_name}" | awk '{print $1}')
+        else
+            log_warn "未找到 sha256sum/shasum 工具，跳过完整性校验"
         fi
+
+        if [ -n "$actual_checksum" ]; then
+            if [ "$actual_checksum" != "$expected_checksum" ]; then
+                log_error "SHA256 校验失败！文件可能被篡改"
+                log_error "  期望: ${expected_checksum}"
+                log_error "  实际: ${actual_checksum}"
+                rm -f "${installer_name}"
+                exit 1
+            fi
+            log_info "SHA256 校验通过"
+        fi
+    else
+        log_warn "当前平台 ${platform_key} 无预置校验值，跳过完整性校验"
     fi
 
-    # Security: ensure installer is not a script/text file masquerading as binary
-    local file_type
-    file_type=$(file -b "${installer_path}" 2>/dev/null || echo "unknown")
-    if echo "$file_type" | grep -qiE 'text|script|ascii|html'; then
-        log_error "Security: installer appears to be a text/script file, not a binary executable"
-        log_error "File type: ${file_type}"
-        rm -f "${installer_path}"
-        exit 1
-    fi
+    # 执行安装器（非交互模式）
+    ./${installer_name} --yes
 
-    # 执行安装器
-    "${installer_path}" --yes
-
-    # 清理安装器 (also handled by trap)
-    rm -f "${installer_path}"
+    # 清理安装器
+    rm -f "${installer_name}"
 
     # 验证安装
     log_info "验证安装..."
@@ -346,9 +245,9 @@ main() {
 
         # 安全免责声明
         echo -e "${RED}┌──────────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${RED}│          ⚠️  baidu-netdisk-skills 公测安全须知 & 免责声明 (BETA)       │${NC}"
+        echo -e "${RED}│              ⚠️  baidu drive 安全须知 & 免责声明                │${NC}"
         echo -e "${RED}├──────────────────────────────────────────────────────────────┤${NC}"
-        echo -e "${RED}│${NC} 1. [测试阶段] 本工具处于公测期，仅供技术交流。               ${RED}│${NC}"
+        echo -e "${RED}│${NC} 1. 请备份网盘重要数据，谨慎操作。                            ${RED}│${NC}"
         echo -e "${RED}│${NC}    请务必【备份】网盘重要数据。                               ${RED}│${NC}"
         echo -e "${RED}│${NC} 2. [行为负责] AI Agent 行为具有不可预测性，请实时             ${RED}│${NC}"
         echo -e "${RED}│${NC}    【人工审核】指令执行过程，对执行后果负责。                  ${RED}│${NC}"

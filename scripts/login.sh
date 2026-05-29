@@ -68,9 +68,9 @@ log_info "未登录，开始 OOB 授权流程..."
 # 安全免责声明
 echo ""
 echo -e "${RED}┌──────────────────────────────────────────────────────────────┐${NC}"
-echo -e "${RED}│          ⚠️  baidu-netdisk-skills 公测安全须知 & 免责声明 (BETA)       │${NC}"
+echo -e "${RED}│              ⚠️  baidu drive 安全须知 & 免责声明                │${NC}"
 echo -e "${RED}├──────────────────────────────────────────────────────────────┤${NC}"
-echo -e "${RED}│${NC} 1. [测试阶段] 本工具处于公测期，仅供技术交流。               ${RED}│${NC}"
+echo -e "${RED}│${NC} 1. 请备份网盘重要数据，谨慎操作。                            ${RED}│${NC}"
 echo -e "${RED}│${NC}    请务必【备份】网盘重要数据。                               ${RED}│${NC}"
 echo -e "${RED}│${NC} 2. [行为负责] AI Agent 行为具有不可预测性，请实时             ${RED}│${NC}"
 echo -e "${RED}│${NC}    【人工审核】指令执行过程，对执行后果负责。                  ${RED}│${NC}"
@@ -104,8 +104,7 @@ log_info "正在获取授权链接..."
 # 检查是否支持 --get-auth-url 参数
 if bdpan login --help 2>/dev/null | grep -q "get-auth-url"; then
     # 新版本，支持 --get-auth-url
-    # Add --accept-disclaimer for first-time use (disclaimer already shown by this script)
-    AUTH_URL=$(bdpan login --get-auth-url --accept-disclaimer 2>/dev/null || echo "")
+    AUTH_URL=$(bdpan login --get-auth-url 2>/dev/null || echo "")
 
     if [ -z "$AUTH_URL" ]; then
         log_error "获取授权链接失败"
@@ -162,8 +161,7 @@ log_info "正在使用授权码完成登录..."
 
 # 通过 stdin 安全传递授权码，避免在 ps / /proc/PID/cmdline 中泄露
 if bdpan login --help 2>/dev/null | grep -q "set-code-stdin"; then
-    # Pass --accept-disclaimer since disclaimer was already shown by this script
-    echo "$AUTH_CODE" | bdpan login --set-code-stdin --accept-disclaimer
+    echo "$AUTH_CODE" | bdpan login --set-code-stdin
 else
     unset AUTH_CODE
     log_error "当前 bdpan 版本不支持 --set-code-stdin（安全授权码传递）"
