@@ -6,68 +6,112 @@
 
 ## 上传并分享
 
+> ⚠️ **公开分享操作前必须用户确认**
+>
+> 上传 + 分享是组合操作，分享会生成对外公开的链接（默认 7 天有效期）。Agent 在执行前**必须**做到：
+> 1. 列出待上传文件清单与远端目标路径
+> 2. 明确告知"分享后将生成公开链接，任何持有链接+提取码的人都可访问"
+> 3. 等待用户显式确认（"确认"、"y"等）后再执行
+> 4. 用户表达任何犹豫（"再想想"、"等等"）应立即中止
+
 ### 示例 1: 上传并分享单个文件
 
 ```
 用户: 帮我上传并分享 ./report.pdf
-AI: [执行 bdpan upload ./report.pdf report.pdf]
-    [执行 bdpan share report.pdf]
+AI:  即将执行以下操作：
+       1) 上传 ./report.pdf → 我的应用数据/bdpan/report.pdf
+       2) 创建公开分享链接（默认有效期 7 天，任何人凭链接+提取码可访问）
+     是否确认？[y/N]
 
-    上传并分享成功！
-    链接: https://pan.baidu.com/s/1xxxxxxx
-    提取码: abcd
-    有效期: 7 天
+用户: y
+AI:  [执行 bdpan upload ./report.pdf report.pdf]
+     [执行 bdpan share report.pdf]
+
+     上传并分享成功！
+     链接: https://pan.baidu.com/s/1xxxxxxx
+     提取码: abcd
+     有效期: 7 天
 ```
 
 ### 示例 2: 上传并分享文件夹
 
 ```
 用户: 把 ./project 文件夹上传并分享
-AI: [执行 bdpan upload ./project/ project/]
-    [执行 bdpan share project]
+AI:  即将执行以下操作：
+       1) 上传整个 ./project/ 目录 → 我的应用数据/bdpan/project/
+       2) 创建公开分享链接（默认 7 天有效期）
+     ⚠️ 文件夹分享会暴露其中所有文件，请确认目录中无敏感内容。
+     是否确认？[y/N]
 
-    文件夹上传并分享成功！
-    链接: https://pan.baidu.com/s/1xxxxxxx
-    提取码: efgh
-    有效期: 7 天
+用户: y
+AI:  [执行 bdpan upload ./project/ project/]
+     [执行 bdpan share project]
+
+     文件夹上传并分享成功！
+     链接: https://pan.baidu.com/s/1xxxxxxx
+     提取码: efgh
+     有效期: 7 天
 ```
 
 ### 示例 3: 上传到子目录
 
 ```
 用户: 上传 ./data.tar.gz 到 backup 目录并分享
-AI: [执行 bdpan upload ./data.tar.gz backup/data.tar.gz]
-    [执行 bdpan share backup/data.tar.gz]
+AI:  即将执行以下操作：
+       1) 上传 ./data.tar.gz → 我的应用数据/bdpan/backup/data.tar.gz
+       2) 创建公开分享链接（默认 7 天有效期）
+     是否确认？[y/N]
 
-    上传并分享成功！
-    链接: https://pan.baidu.com/s/1xxxxxxx
-    提取码: ijkl
-    有效期: 7 天
+用户: y
+AI:  [执行 bdpan upload ./data.tar.gz backup/data.tar.gz]
+     [执行 bdpan share backup/data.tar.gz]
+
+     上传并分享成功！
+     链接: https://pan.baidu.com/s/1xxxxxxx
+     提取码: ijkl
+     有效期: 7 天
 ```
 
 ---
 
 ## 下载文件
 
+> ⚠️ **下载操作的本地风险提示**
+>
+> 下载会向**用户本地文件系统**写入数据：
+> 1. 若目标路径已存在同名文件/目录，**会被覆盖**（bdpan 默认行为）
+> 2. 若目标路径不存在，会创建新文件/目录
+> 3. Agent 在执行前必须做到：① 检查本地目标路径是否已存在 → ② 如已存在则列出并请求用户确认 → ③ 才执行 `bdpan download`
+> 4. 用户表达任何犹豫（"等等"、"我先看看"）应立即中止
+
 ### 示例 4: 下载单个文件
 
 ```
 用户: 从网盘下载 report.pdf
-AI: [执行 bdpan download report.pdf ./report.pdf]
+AI:  [检查本地是否存在 ./report.pdf]
+     检测到本地已存在 ./report.pdf（2026-02-25 修改），下载将覆盖该文件。
+     是否继续？[y/N]
 
-    正在下载 report.pdf → ./report.pdf ...
-    ✓ 下载成功
+用户: y
+AI:  [执行 bdpan download report.pdf ./report.pdf]
+
+     正在下载 report.pdf → ./report.pdf ...
+     ✓ 下载成功（已覆盖原文件）
 ```
 
 ### 示例 5: 下载文件夹
 
 ```
 用户: 把 backup 文件夹下载到本地
-AI: [执行 bdpan download backup/ ./backup/]
+AI:  [检查本地是否存在 ./backup/]
+     ./backup/ 目录不存在，将创建新目录写入文件。
+     [执行 bdpan download backup/ ./backup/]
 
-    正在下载 backup/ → ./backup/ ...
-    ✓ 下载成功
+     正在下载 backup/ → ./backup/ ...
+     ✓ 下载成功
 ```
+
+> 若本地目录已存在，AI 应改为列出当前目录内容，提示用户"下载会逐个覆盖同名文件"，确认后再执行。
 
 ---
 

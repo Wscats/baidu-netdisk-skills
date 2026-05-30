@@ -1,11 +1,11 @@
 ---
 name: baidu-netdisk-skills
 description: >-
-  百度网盘(Baidu Drive)文件管理 — 上传、下载、转存、分享、搜索、移动、复制、重命名、创建文件夹。
+  百度网盘(Baidu Drive, pan.baidu.com)文件管理 — 上传、下载、转存、分享、搜索、移动、复制、重命名、创建文件夹、删除（高风险，需用户确认）。
   同时支持 Agent 记忆备份/恢复（kimiclaw/maxclaw/qclaw/openclaw）。
-  TRIGGER: 用户提及"百度网盘/bdpan/网盘/云盘/baidu drive/Baidu Drive"并涉及文件操作；
-           或用户提及"备份记忆"、"恢复记忆"、"查看记忆备份"等记忆相关操作。
-  DO NOT TRIGGER: 非文件存储操作，或使用其他云盘服务时；本地记忆整理/清理操作；PPT 生成操作（已独立为 baidu-wenku-aippt skill）。
+  TRIGGER: 用户消息明确提及"百度网盘 / 百度云盘 / bdpan / baidu netdisk / baidu pan / baidu drive / pan.baidu.com"并涉及具体文件操作；
+           或用户提及"备份记忆 / 恢复记忆 / 查看记忆备份"等记忆相关操作。
+  DO NOT TRIGGER: 仅泛指"网盘 / 云盘 / 云存储 / 百度云"而未明确指向百度网盘时；用户在讨论其他云盘服务（OneDrive/Google Drive/阿里云盘/夸克网盘等）；本地记忆整理/清理操作；PPT 生成操作（已独立为 baidu-wenku-aippt skill）。
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion
 argument-hint: "[操作指令]"
 ---
@@ -22,12 +22,19 @@ argument-hint: "[操作指令]"
 
 同时满足以下条件才执行：
 
-1. 用户明确提及"百度网盘"、"bdpan"、"网盘"
-2. 操作意图明确（上传/下载/转存/分享/查看/搜索/移动/复制/重命名/创建文件夹/登录/注销）
+1. 用户消息中包含**明确指向百度网盘**的关键词，至少匹配以下之一：
+   - `百度网盘`、`百度云盘`、`bdpan`、`baidu netdisk`、`baidu pan`、`baidu drive`、`pan.baidu.com`
+2. 操作意图明确（上传/下载/转存/分享/查看/搜索/移动/复制/重命名/创建文件夹/删除/登录/注销）
+3. 对于**写操作**（上传、删除、移动、覆盖式下载、公开分享），即使触发词命中，也必须先列出"将要执行的操作 + 影响范围"并取得用户显式确认（`y`）后再执行
+
+**不要触发的情况：**
+- 用户仅说"网盘""云盘""云存储""百度云"等泛指或可能指向其他百度产品的词，未明确指向百度网盘 → 应反问"您指的是百度网盘（pan.baidu.com）吗？"再决定
+- 用户在讨论其他云盘服务（OneDrive、Google Drive、阿里云盘、夸克网盘等）
+- 仅复述、引用或摘要历史聊天记录中的网盘内容，而无新的操作意图
 
 未通过触发规则时，禁止执行任何 bdpan 命令。
 
-> **上下文延续：** 当前对话已在进行网盘操作时，后续消息无需再次提及"网盘"即可触发。
+> **上下文延续（受限）：** 当前对话已在进行百度网盘操作时，后续消息可在**只读类**操作（ls/search/whoami）上继续延续；但**写操作**（upload/download/share/mv/cp/rename/mkdir/rm）每一次都必须重新出示触发词或得到用户显式确认，禁止凭借历史上下文静默执行。
 
 ### 记忆备份/恢复触发
 
@@ -292,9 +299,16 @@ bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh restore 2026-03-16
 
 # 跳过兼容性警告强制恢复（跨 Agent 类型时使用）
 bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh restore 2026-03-16 --force
+
+# 跳过覆盖确认（仅在用户已明确知晓影响时使用，例如 CI/脚本场景）
+bash ${CLAUDE_SKILL_DIR}/scripts/memory-backup.sh restore 2026-03-16 --yes
 ```
 
-**恢复安全机制：** 恢复前自动将当前本地记忆备份到 `<workspace>/.backup-before-restore/<timestamp>/`，防止误操作数据丢失。
+**恢复安全机制：**
+
+1. **影响预览**：恢复前会列出所有将被覆盖/新增的本地文件清单
+2. **显式确认**：默认必须用户输入 `y` 才会执行覆盖（非交互式环境下若未加 `--yes` 直接拒绝执行）
+3. **Safety net**：恢复前自动将当前本地记忆备份到 `<workspace>/.backup-before-restore/<timestamp>/`，防止误操作数据丢失
 
 ### 操作流程
 

@@ -31,8 +31,10 @@ Token 有效期至: 2026-03-10 10:30:00
 **未登录时输出：**
 ```
 认证状态: 未登录
-请执行 bdpan login 进行登录
+请执行: bash ${CLAUDE_SKILL_DIR}/scripts/login.sh
 ```
+
+> ⚠️ **安全约束**：禁止直接调用 `bdpan login` 及其子命令（包括 `--get-auth-url`、`--set-code` 等）。所有登录必须经由 `login.sh` 包装脚本，以确保免责声明展示、用户确认、参数校验等安全环节生效。
 
 ---
 

@@ -406,9 +406,16 @@ bdpan mkdir backup --json
 
 ## 版本管理命令
 
-### update - 自动更新 Skill
+### update - Skill 文件更新（用户主动触发）
 
-> **使用 `bash ${CLAUDE_SKILL_DIR}/scripts/update.sh` 更新 Skill 文件。CLI 更新由 `bdpan` 自身管理。**
+> **使用 `bash ${CLAUDE_SKILL_DIR}/scripts/update.sh` 更新 Skill 文档与脚本（不是 CLI 二进制）。CLI 更新由 `bdpan` 自身管理。**
+>
+> ⚠️ **重要安全约束**
+> - 此机制**仅**用于刷新 Skill 仓库内的文档/脚本（如 SKILL.md、reference/*、scripts/*），**不会**修改用户的本地文件、网盘内容或系统二进制。
+> - **必须由用户明确指令触发**；Agent 禁止自动或静默执行 `update.sh`，禁止使用 `--yes` 参数。
+> - 配置接口固定为百度官方域名 `pan.baidu.com`（HTTPS），且强制 SHA256 校验，校验值缺失或不匹配将拒绝更新。
+> - 下载 URL 仅允许来自百度官方域（`*.baidu.com` / `issuecdn.baidupcs.com`），其他来源会被拒绝。
+> - 更新前必须二次确认：将展示远端版本、下载地址、校验值，等待用户输入 `y` 后才会下载并解压覆盖。
 
 ```bash
 # 检查并更新（交互式，需用户确认）
@@ -416,22 +423,20 @@ bash ${CLAUDE_SKILL_DIR}/scripts/update.sh
 
 # 仅检查更新，不执行
 bash ${CLAUDE_SKILL_DIR}/scripts/update.sh --check
-
-# 跳过确认，自动更新（自动化场景）
-bash ${CLAUDE_SKILL_DIR}/scripts/update.sh --yes
 ```
 
+> 注：`--yes` 参数仅用于 CI/自动化场景；在 Claude Code/MCP/Anthropic API 等 Agent 环境下脚本会自动忽略 `--yes` 并强制要求用户确认。
+
 **功能说明：**
-- 通过百度配置接口获取最新 Skill 版本信息
+- 通过百度官方配置接口（HTTPS）获取最新 Skill 版本信息
 - 对比本地 VERSION 文件判断是否需要更新
-- 下载 zip 包并解压覆盖，更新 VERSION 文件
-- 支持 SHA256 完整性校验（如配置中包含 checksum）
+- 强制 SHA256 完整性校验 + 下载源域名白名单
+- 仅在用户确认后才下载 zip 包并解压覆盖 Skill 目录
 
 **选项：**
 | 选项 | 说明 |
 |------|------|
 | `--check, -c` | 仅检查更新，不执行安装 |
-| `--yes, -y` | 跳过用户确认，自动执行更新 |
 | `--help` | 显示帮助信息 |
 
 ### version - 查看版本信息

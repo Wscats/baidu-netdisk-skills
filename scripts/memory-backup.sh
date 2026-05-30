@@ -610,6 +610,7 @@ cmd_list() {
 cmd_restore() {
   local date_pattern="$1"
   local force="${2:-false}"
+  local assume_yes="${3:-false}"
 
   check_prerequisites
 
@@ -736,6 +737,46 @@ cmd_restore() {
     fi
   done
 
+  # ╔═════════════════════════════════════════════════════════════════╗
+  # Dry-run 预览：明确告知哪些本地文件将被覆盖，赢得用户显式确认
+  # ╠═════════════════════════════════════════════════════════════════╣
+  echo ""
+  echo "即将恢复以下文件（本地现有同名文件将被覆盖）："
+  local _ws_set="|"
+  for _wf in "${WORKSPACE_FILES[@]}"; do _ws_set="${_ws_set}${_wf}|"; done
+  for _file in "${MANIFEST_FILES[@]}"; do
+    local _src="$tmp_dir/$_file"
+    [ -f "$_src" ] || continue
+    local _dest_path
+    if [[ "$_ws_set" == *"|${_file}|"* ]]; then
+      _dest_path="$WORKSPACE_DIR/$_file"
+    elif [[ "$_file" == memory/* ]]; then
+      _dest_path="$MEMORY_DIR/${_file#memory/}"
+    else
+      _dest_path="$WORKSPACE_DIR/$_file"
+    fi
+    if [ -f "$_dest_path" ]; then
+      echo "  [覆盖] $_dest_path"
+    else
+      echo "  [新增] $_dest_path"
+    fi
+  done
+  echo ""
+  echo "安全网：当前本地记忆已备份至 $safety_dir"
+
+  if [ "$assume_yes" != "true" ]; then
+    if [ ! -t 0 ]; then
+      echo "检测到非交互式执行环境，为保护本地记忆拒绝静默覆盖。" >&2
+      echo "请加 --yes/-y 参数明确确认，或在交互式环境下重试。" >&2
+      exit 1
+    fi
+    read -r -p "确认以上覆盖操作？[y/N] " _reply
+    case "$_reply" in
+      y|Y|yes|YES|Yes) ;;
+      *) echo "已取消恢复。本地记忆未被修改。"; exit 0 ;;
+    esac
+  fi
+
   # 合并文件到本地
   apply_merge "$tmp_dir"
 
@@ -765,7 +806,7 @@ usage() {
   echo "Commands:"
   echo "  backup                    备份当前 Agent 记忆到百度网盘"
   echo "  list                      列出网盘上所有可用的记忆备份"
-  echo "  restore <date> [--force]  从百度网盘恢复指定日期的记忆（支持模糊匹配）"
+  echo "  restore <date> [--force] [--yes]  从百度网盘恢复指定日期的记忆（支持模糊匹配）"
   echo "  help                      显示帮助信息"
   echo ""
   echo "Examples:"
@@ -815,20 +856,23 @@ main() {
         exit 1
       }
       local force="false"
+      local assume_yes="false"
       local date_arg=""
       while [ $# -gt 0 ]; do
         case "$1" in
           --force|-f) force="true"; shift ;;
+          --yes|-y) assume_yes="true"; shift ;;
           -*) echo "未知选项: $1" >&2; exit 1 ;;
           *) date_arg="$1"; shift ;;
         esac
       done
       if [ -z "$date_arg" ]; then
-        echo "用法: memory-backup.sh restore <date> [--force]" >&2
+        echo "用法: memory-backup.sh restore <date> [--force] [--yes]" >&2
         echo "示例: memory-backup.sh restore 2026-03-16" >&2
+        echo "说明: --force 跳过兼容性警告；--yes 跳过覆盖确认提示。" >&2
         exit 1
       fi
-      cmd_restore "$date_arg" "$force"
+      cmd_restore "$date_arg" "$force" "$assume_yes"
       ;;
     *)
       echo "未知命令: $1" >&2

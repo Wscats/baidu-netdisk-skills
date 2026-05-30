@@ -121,6 +121,40 @@ fetch_skills_info() {
     echo "$skills_info"
 }
 
+# 校验下载 URL 是否来自百度官方白名单域名
+# 仅允许：*.baidu.com / issuecdn.baidupcs.com / pan.baidu.com
+validate_url_host() {
+    local url="$1"
+
+    # 必须 https
+    case "$url" in
+        https://*) ;;
+        *)
+            log_error "拒绝更新：下载地址必须使用 HTTPS（实际：${url})"
+            return 1
+            ;;
+    esac
+
+    # 提取 host（去掉 https://、路径、端口）
+    local host
+    host=$(echo "$url" | sed -E 's|^https://([^/:]+).*$|\1|')
+    if [ -z "$host" ]; then
+        log_error "拒绝更新：无法解析下载地址的主机名"
+        return 1
+    fi
+
+    case "$host" in
+        *.baidu.com|baidu.com|*.baidupcs.com|baidupcs.com|*.bdimg.com|*.bdstatic.com)
+            return 0
+            ;;
+        *)
+            log_error "拒绝更新：下载地址不在百度官方域名白名单内（host=${host}）"
+            log_error "  仅允许的域名：*.baidu.com、*.baidupcs.com、*.bdimg.com、*.bdstatic.com"
+            return 1
+            ;;
+    esac
+}
+
 # 更新 Skill
 do_update() {
     local remote_url="$1"
@@ -130,6 +164,9 @@ do_update() {
         log_error "未找到 Skill 下载地址"
         return 1
     fi
+
+    # 域名白名单校验（在任何下载动作之前）
+    validate_url_host "$remote_url" || return 1
 
     log_info "正在下载 Skill 更新包 (v${remote_version})..."
     log_info "下载地址: ${remote_url}"
@@ -301,6 +338,14 @@ main() {
         fi
     fi
     if [ "$auto_yes" != "yes" ]; then
+        # 在最终确认前展示下载源与校验值，便于用户做安全审查
+        local _preview_url=$(query_get "$SKILLS_INFO" "url")
+        local _preview_checksum=$(query_get "$SKILLS_INFO" "checksum")
+        echo -e "${YELLOW}本次更新将影响 Skill 目录文件：${NC}${SKILL_DIR}"
+        echo "  下载地址: ${_preview_url:-<未提供>}"
+        echo "  SHA256:   ${_preview_checksum:-<未提供（将被拒绝更新）>}"
+        echo "  影响范围: 仅 Skill 文档/脚本，不会修改用户网盘内容或本地文件"
+        echo ""
         echo -n -e "${YELLOW}是否更新 Skill 到 v${remote_version}? [y/N] ${NC}"
         read -n 1 -r
         echo

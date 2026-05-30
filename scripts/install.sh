@@ -225,6 +225,29 @@ main() {
         log_warn "当前平台 ${platform_key} 无预置校验值，跳过完整性校验"
     fi
 
+    # ============================================================
+    # Final user checkpoint（执行 installer 前的最终确认）
+    # 即使 SHA256 通过，也确保用户理解：接下来将执行从 CDN 下载的二进制安装器
+    # ============================================================
+    echo ""
+    echo -e "${YELLOW}即将执行已下载的安装器：${NC}"
+    echo "  路径: ./${installer_name}"
+    echo "  来源: ${installer_url}"
+    echo "  SHA256: 已校验通过"
+    echo ""
+    echo "该安装器将向系统写入 bdpan CLI 二进制（通常位于 ~/.local/bin）。"
+    if [ "$force" = "yes" ]; then
+        log_warn "检测到 --yes/--force，跳过最终确认（非交互模式）。"
+    else
+        read -p "是否现在执行安装器？[y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "已取消执行。安装器文件保留在当前目录：./${installer_name}"
+            log_info "您可以先审查内容，或稍后手动执行：./${installer_name}"
+            exit 0
+        fi
+    fi
+
     # 执行安装器（非交互模式）
     ./${installer_name} --yes
 
